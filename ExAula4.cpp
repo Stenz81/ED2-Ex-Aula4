@@ -3,27 +3,35 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <cstring>
+#include <vector>
+
 struct cabecalho
 {
     int offset_disponivel;
-    int ultimoLido = 0;
-    int ultimoRemovido = 0;
-};
+    int ler = 0;
+    int remover = 0;
+}header;
 
-struct espaco_livre{
+struct espaco_livre
+{
     int size;
     char marcador;
     int offset_prox;
 };
 
-struct inseridos
+struct Registro
 {
-    char id_aluno[4];
-    char sigla_disc[4];
-    char nome_aluno[50];
-    char nome_disc[50];
+    char id_aluno[4]; 
+    char sigla_disciplina[4]; 
+    std::string nome_aluno; 
+    std::string nome_disciplina; 
     float media;
-    float freq;
+    float frequencia;
 } insere[6];
 
 struct removidos
@@ -32,16 +40,94 @@ struct removidos
     char sigla_disc[4];
 } remove[4];
 
+// Função para calcular o tamanho do registro
+int calcularTamanhoRegistro(const Registro &reg)
+{
+    int tamanho = sizeof(reg.id_aluno) + sizeof(reg.sigla_disciplina) +
+                  reg.nome_aluno.size() + 1 + // +1 para o separador '#'
+                  reg.nome_disciplina.size() + 1 +
+                  sizeof(reg.media) + sizeof(reg.frequencia);
+    return tamanho;
+}
+
+// Função para escrever um registro no arquivo
+void inserirRegistro(const std::string &arquivo, const Registro &reg)
+{
+    std::fstream file(arquivo, std::ios::in | std::ios::out | std::ios::binary);
+
+    if (!file.is_open())
+    {
+        // Se o arquivo não existir, cria um novo
+        file.open(arquivo, std::ios::out | std::ios::binary);
+        file.close();
+        file.open(arquivo, std::ios::in | std::ios::out | std::ios::binary);
+    }
+
+    int tamanho_registro = calcularTamanhoRegistro(reg);
+    int tamanho_atual;
+
+    // Verifica se existe espaço disponível (first-fit)
+    bool espaco_encontrado = false;
+    while (file.read(reinterpret_cast<char *>(&tamanho_atual), sizeof(int)))
+    {
+        if (tamanho_atual >= tamanho_registro)
+        {
+            // Move de volta para a posição inicial do espaço encontrado
+            file.seekp(-sizeof(int), std::ios::cur);
+
+            // Escreve o novo tamanho do registro
+            file.write(reinterpret_cast<const char *>(&tamanho_registro), sizeof(int));
+
+            // Escreve o conteúdo do registro
+            file.write(reg.id_aluno, sizeof(reg.id_aluno));
+            file.write(reg.sigla_disciplina, sizeof(reg.sigla_disciplina));
+            file.write(reg.nome_aluno.c_str(), reg.nome_aluno.size());
+            file.put('#');
+            file.write(reg.nome_disciplina.c_str(), reg.nome_disciplina.size());
+            file.put('#');
+            file.write(reinterpret_cast<const char *>(&reg.media), sizeof(float));
+            file.write(reinterpret_cast<const char *>(&reg.frequencia), sizeof(float));
+
+            espaco_encontrado = true;
+            break;
+        }
+        else
+        {
+            // Avança para o próximo registro
+            file.seekg(tamanho_atual, std::ios::cur);
+        }
+    }
+
+    if (!espaco_encontrado)
+    {
+        // Adiciona o registro no final do arquivo
+        file.clear();                 // Limpa o EOF flag
+        file.seekp(0, std::ios::end); // Vai para o final do arquivo
+
+        // Escreve o tamanho do registro no início
+        file.write(reinterpret_cast<const char *>(&tamanho_registro), sizeof(int));
+
+        // Escreve o conteúdo do registro
+        file.write(reg.id_aluno, sizeof(reg.id_aluno));
+        file.write(reg.sigla_disciplina, sizeof(reg.sigla_disciplina));
+        file.write(reg.nome_aluno.c_str(), reg.nome_aluno.size());
+        file.put('#');
+        file.write(reg.nome_disciplina.c_str(), reg.nome_disciplina.size());
+        file.put('#');
+        file.write(reinterpret_cast<const char *>(&reg.media), sizeof(float));
+        file.write(reinterpret_cast<const char *>(&reg.frequencia), sizeof(float));
+    }
+}
 void removerRegistro(FILE *fd, struct cabecalho *header, char *id_aluno, char *sigla_disc)
 {
     int reg_size;
-    char buffer[1000];  // Buffer para armazenar o registro completo
-    long offset = sizeof(struct cabecalho);  // Começar após o cabeçalho
-    long reg_start_offset; // Guardará o inicio do registro que está sendo lido
-    
-    fseek(fd, offset, SEEK_SET);  // Navega até o início do arquivo após o cabeçalho
+    char buffer[1000];                      // Buffer para armazenar o registro completo
+    long offset = sizeof(struct cabecalho); // Começar após o cabeçalho
+    long reg_start_offset;                  // Guardará o inicio do registro que está sendo lido
 
-    //Percorre o arquivo em busca do registro correspondente ao id e sigla fornecidos
+    fseek(fd, offset, SEEK_SET); // Navega até o início do arquivo após o cabeçalho
+
+    // Percorre o arquivo em busca do registro correspondente ao id e sigla fornecidos
     while (fread(&reg_size, sizeof(int), 1, fd))
     {
         // Guarda o início do registro atual
@@ -59,7 +145,8 @@ void removerRegistro(FILE *fd, struct cabecalho *header, char *id_aluno, char *s
         strcpy(read_sigla_disc, token);
 
         // Verifica se o registro atual corresponde ao id e sigla fornecidos
-        if (strcmp(read_id_aluno, id_aluno) == 0 && strcmp(read_sigla_disc, sigla_disc) == 0){
+        if (strcmp(read_id_aluno, id_aluno) == 0 && strcmp(read_sigla_disc, sigla_disc) == 0)
+        {
             struct espaco_livre el;
             el.size = reg_size;
             el.marcador = '*';
@@ -71,7 +158,7 @@ void removerRegistro(FILE *fd, struct cabecalho *header, char *id_aluno, char *s
 
             // Atualiza o cabeçalho com o novo primeiro espaço livre, e atualiza o ultimo arquivo removido do vetor
             header->offset_disponivel = reg_start_offset;
-            header->ultimoRemovido++;
+            header->remover++;
 
             // Atualiza o cabeçalho no arquivo
             fseek(fd, 0, SEEK_SET);
@@ -112,11 +199,11 @@ int main()
     for (int i = 0; i < 6; i++)
     {
         printf("ID Aluno: %s\n", insere[i].id_aluno);
-        printf("Sigla Disciplina: %s\n", insere[i].sigla_disc);
+        printf("Sigla Disciplina: %s\n", insere[i].sigla_disciplina);
         printf("Nome Aluno: %s\n", insere[i].nome_aluno);
-        printf("Nome Disciplina: %s\n", insere[i].nome_disc);
+        printf("Nome Disciplina: %s\n", insere[i].nome_disciplina);
         printf("Media: %.2f\n", insere[i].media);
-        printf("Frequencia: %.2f\n\n", insere[i].freq);
+        printf("Frequencia: %.2f\n\n", insere[i].frequencia);
     }
 
     // Leitura dos registros a serem removidos:
@@ -143,5 +230,38 @@ int main()
         printf("\n");
     }
 
-    return 0;
+    header.offset_disponivel = -1;
+    header.ler = 0;
+    header.remover = 0;
+
+    fd = fopen("listaRegistros.bin", "wb+");
+    if (fd == NULL)
+    {
+        printf("Nao foi possivel abrir o arquivo.\n");
+        return 1;
+    }
+    fseek(fd, 0, SEEK_SET);
+    fwrite(&header, sizeof(struct cabecalho), 1, fd);
+
+    int choice;
+    do{
+        printf("Selecione uma das seguintes opções:\n0-Sair;\n1-Inserir novo registro;\n2-Remover registro;\n3-Realizar a compactação do arquivo;\nOpção:");
+        scanf("%i", &choice);
+        switch (choice)
+        {
+        case 1:
+            /* code */
+            break;
+        
+        case 2:
+            break;
+
+        case 3:
+            break;
+
+        }
+
+    }while(choice != 0);
+
+
 }

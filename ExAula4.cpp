@@ -28,8 +28,8 @@ struct Registro
 {
     char id_aluno[4]; 
     char sigla_disciplina[4]; 
-    std::string nome_aluno; 
-    std::string nome_disciplina; 
+    char nome_aluno[50]; 
+    char nome_disciplina[50]; 
     float media;
     float frequencia;
 } insere[6];
@@ -38,29 +38,30 @@ struct removidos
 {
     char id_aluno[4];
     char sigla_disc[4];
-} remove[4];
+} elimina[4];
 
 // Função para calcular o tamanho do registro
 int calcularTamanhoRegistro(const Registro &reg)
 {
     int tamanho = sizeof(reg.id_aluno) + sizeof(reg.sigla_disciplina) +
-                  reg.nome_aluno.size() + 1 + // +1 para o separador '#'
-                  reg.nome_disciplina.size() + 1 +
+                  sizeof(reg.nome_aluno) + 1 + // +1 para o separador '#'
+                  sizeof(reg.nome_disciplina) + 1 +
                   sizeof(reg.media) + sizeof(reg.frequencia);
     return tamanho;
 }
 
 // Função para escrever um registro no arquivo
-void inserirRegistro(const std::string &arquivo, const Registro &reg)
-{
-    std::fstream file(arquivo, std::ios::in | std::ios::out | std::ios::binary);
+// Função para escrever um registro no arquivo
+void inserirRegistro(const std::string& arquivo, const Registro& reg) {
+    FILE* file = fopen(arquivo.c_str(), "rb+");
 
-    if (!file.is_open())
-    {
+    if (!file) {
         // Se o arquivo não existir, cria um novo
-        file.open(arquivo, std::ios::out | std::ios::binary);
-        file.close();
-        file.open(arquivo, std::ios::in | std::ios::out | std::ios::binary);
+        file = fopen(arquivo.c_str(), "wb+");
+        if (!file) {
+            std::cerr << "Erro ao abrir o arquivo!" << std::endl;
+            return;
+        }
     }
 
     int tamanho_registro = calcularTamanhoRegistro(reg);
@@ -68,55 +69,51 @@ void inserirRegistro(const std::string &arquivo, const Registro &reg)
 
     // Verifica se existe espaço disponível (first-fit)
     bool espaco_encontrado = false;
-    while (file.read(reinterpret_cast<char *>(&tamanho_atual), sizeof(int)))
-    {
-        if (tamanho_atual >= tamanho_registro)
-        {
+    while (fread(&tamanho_atual, sizeof(int), 1, file) == 1) {
+        if (tamanho_atual >= tamanho_registro) {
             // Move de volta para a posição inicial do espaço encontrado
-            file.seekp(-sizeof(int), std::ios::cur);
+            fseek(file, -sizeof(int), SEEK_CUR);
 
             // Escreve o novo tamanho do registro
-            file.write(reinterpret_cast<const char *>(&tamanho_registro), sizeof(int));
+            fwrite(&tamanho_registro, sizeof(int), 1, file);
 
             // Escreve o conteúdo do registro
-            file.write(reg.id_aluno, sizeof(reg.id_aluno));
-            file.write(reg.sigla_disciplina, sizeof(reg.sigla_disciplina));
-            file.write(reg.nome_aluno.c_str(), reg.nome_aluno.size());
-            file.put('#');
-            file.write(reg.nome_disciplina.c_str(), reg.nome_disciplina.size());
-            file.put('#');
-            file.write(reinterpret_cast<const char *>(&reg.media), sizeof(float));
-            file.write(reinterpret_cast<const char *>(&reg.frequencia), sizeof(float));
+            fwrite(reg.id_aluno, sizeof(reg.id_aluno), 1, file);
+            fwrite(reg.sigla_disciplina, sizeof(reg.sigla_disciplina), 1, file);
+            fwrite(reg.nome_aluno, sizeof(char), sizeof(reg.nome_aluno), file);
+            fputc('#', file);
+            fwrite(reg.nome_disciplina, sizeof(char), sizeof(reg.nome_disciplina), file);
+            fputc('#', file);
+            fwrite(&reg.media, sizeof(float), 1, file);
+            fwrite(&reg.frequencia, sizeof(float), 1, file);
 
             espaco_encontrado = true;
             break;
-        }
-        else
-        {
+        } else {
             // Avança para o próximo registro
-            file.seekg(tamanho_atual, std::ios::cur);
+            fseek(file, tamanho_atual, SEEK_CUR);
         }
     }
 
-    if (!espaco_encontrado)
-    {
+    if (!espaco_encontrado) {
         // Adiciona o registro no final do arquivo
-        file.clear();                 // Limpa o EOF flag
-        file.seekp(0, std::ios::end); // Vai para o final do arquivo
+        fseek(file, 0, SEEK_END); // Vai para o final do arquivo
 
         // Escreve o tamanho do registro no início
-        file.write(reinterpret_cast<const char *>(&tamanho_registro), sizeof(int));
+        fwrite(&tamanho_registro, sizeof(int), 1, file);
 
         // Escreve o conteúdo do registro
-        file.write(reg.id_aluno, sizeof(reg.id_aluno));
-        file.write(reg.sigla_disciplina, sizeof(reg.sigla_disciplina));
-        file.write(reg.nome_aluno.c_str(), reg.nome_aluno.size());
-        file.put('#');
-        file.write(reg.nome_disciplina.c_str(), reg.nome_disciplina.size());
-        file.put('#');
-        file.write(reinterpret_cast<const char *>(&reg.media), sizeof(float));
-        file.write(reinterpret_cast<const char *>(&reg.frequencia), sizeof(float));
+        fwrite(reg.id_aluno, sizeof(reg.id_aluno), 1, file);
+        fwrite(reg.sigla_disciplina, sizeof(reg.sigla_disciplina), 1, file);
+        fwrite(reg.nome_aluno, sizeof(char), sizeof(reg.nome_aluno), file);
+        fputc('#', file);
+        fwrite(reg.nome_disciplina, sizeof(char), sizeof(reg.nome_disciplina), file);
+        fputc('#', file);
+        fwrite(&reg.media, sizeof(float), 1, file);
+        fwrite(&reg.frequencia, sizeof(float), 1, file);
     }
+
+    fclose(file);
 }
 void removerRegistro(FILE *fd, struct cabecalho *header, char *id_aluno, char *sigla_disc)
 {
@@ -217,7 +214,7 @@ int main()
     }
 
     // Le os registros do arquivo e armazena no vetor
-    fread(remove, sizeof(remove), 1, fd);
+    fread(elimina, sizeof(elimina), 1, fd);
 
     // Fecha o arquivo
     fclose(fd);
@@ -225,10 +222,12 @@ int main()
     // Exibe os registros lidos para verificar se tudo foi lido corretamente
     for (int i = 0; i < 4; i++)
     {
-        printf("ID Aluno: %s\n", remove[i].id_aluno);
-        printf("Sigla Disciplina: %s\n", remove[i].sigla_disc);
+        printf("ID Aluno: %s\n", elimina[i].id_aluno);
+        printf("Sigla Disciplina: %s\n", elimina[i].sigla_disc);
         printf("\n");
     }
+
+
 
     header.offset_disponivel = -1;
     header.ler = 0;
@@ -240,6 +239,9 @@ int main()
         printf("Nao foi possivel abrir o arquivo.\n");
         return 1;
     }
+
+    inserirRegistro("listaRegistros.bin", insere[0]);
+    /*
     fseek(fd, 0, SEEK_SET);
     fwrite(&header, sizeof(struct cabecalho), 1, fd);
 
@@ -250,7 +252,7 @@ int main()
         switch (choice)
         {
         case 1:
-            /* code */
+            
             break;
         
         case 2:
@@ -262,6 +264,6 @@ int main()
         }
 
     }while(choice != 0);
-
+*/
 
 }

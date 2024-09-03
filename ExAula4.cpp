@@ -15,7 +15,7 @@ struct cabecalho
     int offset_disponivel;
     int ler = 0;
     int remover = 0;
-}header;
+} header;
 
 struct espaco_livre
 {
@@ -26,10 +26,10 @@ struct espaco_livre
 
 struct Registro
 {
-    char id_aluno[4]; 
-    char sigla_disciplina[4]; 
-    char nome_aluno[50]; 
-    char nome_disciplina[50]; 
+    char id_aluno[4];
+    char sigla_disciplina[4];
+    char nome_aluno[50];
+    char nome_disciplina[50];
     float media;
     float frequencia;
 } insere[6];
@@ -43,34 +43,47 @@ struct removidos
 // Função para calcular o tamanho do registro
 int calcularTamanhoRegistro(const Registro &reg)
 {
-    int tamanho = sizeof(reg.id_aluno) + sizeof(reg.sigla_disciplina) +
-                  sizeof(reg.nome_aluno) + 1 + // +1 para o separador '#'
-                  sizeof(reg.nome_disciplina) + 1 +
-                  sizeof(reg.media) + sizeof(reg.frequencia);
+    int tamanho_nome_aluno, tamanho_nome_disciplina;
+    for (int i = 0; i < 50; i++)
+    {
+        if (reg.nome_aluno[i] == '\0')
+        {          // Verifica se encontrou o espaço vazio (0x00)
+            break; 
+        }
+        tamanho_nome_aluno++;
+    }
+
+    for (int i = 0; i < 50; i++)
+    {
+        if (reg.nome_disciplina[i] == '\0')
+        {          // Verifica se encontrou o espaço vazio (0x00)
+            break; 
+        }
+        tamanho_nome_disciplina++;
+    }
+
+    int tamanho = sizeof(reg.id_aluno) + 1 +
+                  sizeof(reg.sigla_disciplina) + 1 +
+                  tamanho_nome_aluno*sizeof(char) + 1 +              // +1 para o separador '#'
+                  tamanho_nome_disciplina*sizeof(char) + 1 +
+                  sizeof(reg.media) + 1 +
+                  sizeof(reg.frequencia);
     return tamanho;
 }
 
 // Função para escrever um registro no arquivo
 // Função para escrever um registro no arquivo
-void inserirRegistro(const std::string& arquivo, const Registro& reg) {
-    FILE* file = fopen(arquivo.c_str(), "rb+");
-
-    if (!file) {
-        // Se o arquivo não existir, cria um novo
-        file = fopen(arquivo.c_str(), "wb+");
-        if (!file) {
-            std::cerr << "Erro ao abrir o arquivo!" << std::endl;
-            return;
-        }
-    }
-
+void inserirRegistro(FILE *file, const Registro &reg)
+{
     int tamanho_registro = calcularTamanhoRegistro(reg);
     int tamanho_atual;
 
     // Verifica se existe espaço disponível (first-fit)
     bool espaco_encontrado = false;
-    while (fread(&tamanho_atual, sizeof(int), 1, file) == 1) {
-        if (tamanho_atual >= tamanho_registro) {
+    while (fread(&tamanho_atual, sizeof(int), 1, file) == 1)
+    {
+        if (tamanho_atual >= tamanho_registro)
+        {
             // Move de volta para a posição inicial do espaço encontrado
             fseek(file, -sizeof(int), SEEK_CUR);
 
@@ -79,23 +92,47 @@ void inserirRegistro(const std::string& arquivo, const Registro& reg) {
 
             // Escreve o conteúdo do registro
             fwrite(reg.id_aluno, sizeof(reg.id_aluno), 1, file);
-            fwrite(reg.sigla_disciplina, sizeof(reg.sigla_disciplina), 1, file);
-            fwrite(reg.nome_aluno, sizeof(char), sizeof(reg.nome_aluno), file);
             fputc('#', file);
-            fwrite(reg.nome_disciplina, sizeof(char), sizeof(reg.nome_disciplina), file);
+            fwrite(reg.sigla_disciplina, sizeof(reg.sigla_disciplina), 1, file);
+            fputc('#', file);
+
+            int count = 0;
+            // Inserir nome_aluno caracter por caracter até encontrar 0x00
+            for (int i = 0; i < 50; i++)
+            {
+                if (reg.nome_aluno[i] == '\0')
+                {          // Verifica se encontrou o espaço vazio (0x00)
+                    break; // Pula para o próximo campo
+                }
+                fputc(reg.nome_aluno[i], file); // Escreve o caractere no arquivo
+            }
+
+            // Inserir nome_disciplina caracter por caracter até encontrar 0x00
+            for (int i = 0; i < 50; i++)
+            {
+                if (reg.nome_disciplina[i] == '\0')
+                {          // Verifica se encontrou o espaço vazio (0x00)
+                    break; // Pula para o próximo campo
+                }
+                fputc(reg.nome_disciplina[i], file); // Escreve o caractere no arquivo
+            }
             fputc('#', file);
             fwrite(&reg.media, sizeof(float), 1, file);
+            fputc('#', file);
             fwrite(&reg.frequencia, sizeof(float), 1, file);
 
             espaco_encontrado = true;
             break;
-        } else {
+        }
+        else
+        {
             // Avança para o próximo registro
             fseek(file, tamanho_atual, SEEK_CUR);
         }
     }
 
-    if (!espaco_encontrado) {
+    if (!espaco_encontrado)
+    {
         // Adiciona o registro no final do arquivo
         fseek(file, 0, SEEK_END); // Vai para o final do arquivo
 
@@ -104,12 +141,15 @@ void inserirRegistro(const std::string& arquivo, const Registro& reg) {
 
         // Escreve o conteúdo do registro
         fwrite(reg.id_aluno, sizeof(reg.id_aluno), 1, file);
+        fputc('#', file);
         fwrite(reg.sigla_disciplina, sizeof(reg.sigla_disciplina), 1, file);
+        fputc('#', file);
         fwrite(reg.nome_aluno, sizeof(char), sizeof(reg.nome_aluno), file);
         fputc('#', file);
         fwrite(reg.nome_disciplina, sizeof(char), sizeof(reg.nome_disciplina), file);
         fputc('#', file);
         fwrite(&reg.media, sizeof(float), 1, file);
+        fputc('#', file);
         fwrite(&reg.frequencia, sizeof(float), 1, file);
     }
 
@@ -227,8 +267,6 @@ int main()
         printf("\n");
     }
 
-
-
     header.offset_disponivel = -1;
     header.ler = 0;
     header.remover = 0;
@@ -240,7 +278,8 @@ int main()
         return 1;
     }
 
-    inserirRegistro("listaRegistros.bin", insere[0]);
+    inserirRegistro(fd, insere[0]);
+    //inserirRegistro(fd, insere[1]);
     /*
     fseek(fd, 0, SEEK_SET);
     fwrite(&header, sizeof(struct cabecalho), 1, fd);
@@ -252,9 +291,9 @@ int main()
         switch (choice)
         {
         case 1:
-            
+
             break;
-        
+
         case 2:
             break;
 
@@ -265,5 +304,4 @@ int main()
 
     }while(choice != 0);
 */
-
 }

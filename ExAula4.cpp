@@ -44,7 +44,7 @@ struct removidos
 // Função para calcular o tamanho do registro
 int calcularTamanhoRegistro(const Registro &reg)
 {
-    int tamanho_nome_aluno, tamanho_nome_disciplina;
+    int tamanho_nome_aluno = 0, tamanho_nome_disciplina = 0;
     for (int i = 0; i < 50; i++)
     {
 
@@ -84,10 +84,8 @@ void inserirRegistro(FILE *file, const Registro &reg)
     struct cabecalho header;
     fseek(file, 0, SEEK_SET);
     fread(&header, sizeof(struct cabecalho), 1, file);
-    printf("%i", header.offset_disponivel);
     int offset_anterior = -1;
     int offset_atual = header.offset_disponivel;
-    printf("%i", offset_atual);
     int offset_inserir = -1;
 
     struct espaco_livre esp_livre;
@@ -120,7 +118,6 @@ void inserirRegistro(FILE *file, const Registro &reg)
         offset_anterior = offset_atual;
         offset_atual = esp_livre.offset_prox;
     }
-    printf("opa");
     if (offset_inserir == -1)
     { // Se não encontrou um espaço adequado, insere no final do arquivo
         fseek(file, 0, SEEK_END);
@@ -147,7 +144,7 @@ void inserirRegistro(FILE *file, const Registro &reg)
         }
         fputc(reg.nome_aluno[i], file); // Escreve o caractere no arquivo
     }
-
+    fputc('#', file);
     // Inserir nome_disciplina caracter por caracter até encontrar 0x00
     for (int i = 0; i < 50; i++)
     {
@@ -162,56 +159,110 @@ void inserirRegistro(FILE *file, const Registro &reg)
     fputc('#', file);
     fwrite(&reg.frequencia, sizeof(float), 1, file);
     // Atualizar o cabeçalho no arquivo
+    header.ler++;
     fseek(file, 0, SEEK_SET);
     fwrite(&header, sizeof(header), 1, file);
 }
-void removerRegistro(FILE *fd, struct cabecalho *header, char *id_aluno, char *sigla_disc)
+void removerRegistro(FILE *fd, const removidos rem)
 {
     int reg_size;
     char buffer[1000];                      // Buffer para armazenar o registro completo
     long offset = sizeof(struct cabecalho); // Começar após o cabeçalho
     long reg_start_offset;                  // Guardará o inicio do registro que está sendo lido
 
+    struct cabecalho header;
+    fseek(fd, 0, SEEK_SET);
+    fread(&header, sizeof(struct cabecalho), 1, fd);
+
     fseek(fd, offset, SEEK_SET); // Navega até o início do arquivo após o cabeçalho
 
     // Percorre o arquivo em busca do registro correspondente ao id e sigla fornecidos
     while (fread(&reg_size, sizeof(int), 1, fd))
     {
-        // Guarda o início do registro atual
-        long reg_start_offset = offset;
+
+        reg_start_offset = ftell(fd) - sizeof(int); // Guarda o início do registro atual
 
         // Lê o registro completo baseado no tamanho
         fread(buffer, reg_size, 1, fd);
-        buffer[reg_size - sizeof(int)] = '\0';
+        buffer[reg_size] = '\0';
+/*
+        printf("Conteúdo do buffer: '%s'\n", buffer);
+
+        // Verifica o conteúdo do buffer
+        for (int i = 0; i < reg_size; i++) {
+            printf("buffer[%d]: %02x '%c'\n", i, (unsigned char)buffer[i], buffer[i]);
+        }
 
         // Separa os campos do registro
-        char *token = strtok(buffer, "#");
-        char read_id_aluno[4], read_sigla_disc[4];
-        strcpy(read_id_aluno, token);
-        token = strtok(NULL, "#");
-        strcpy(read_sigla_disc, token);
+        char *token1 = strtok(buffer, "#");
+        char *token2 = strtok(NULL, "#");
+        if (token1 == NULL)
+        {
+            printf("Erro ao separar o ID do aluno.\n");
+            return;
+        }
+        char read_id_aluno[4];
+        strncpy(read_id_aluno, token1, sizeof(read_id_aluno) - 1);
+        read_id_aluno[sizeof(read_id_aluno) - 1] = '\0'; // Assegura o terminador nulo
+        printf("ID do aluno lido: '%s'\n", read_id_aluno);
+
+        if (token2 == NULL)
+        {
+            printf("Erro ao separar a sigla da disciplina.\n");
+            return;
+        }
+        char read_sigla_disc[4];
+
+        strncpy(read_sigla_disc, token2, sizeof(read_sigla_disc) - 1);
+        read_sigla_disc[sizeof(read_sigla_disc) - 1] = '\0'; // Assegura o terminador nulo
+        printf("Sigla da disciplina lida: '%s'\n", read_sigla_disc);
+
+        /*printf("Sigla da disciplina lida: %s\n", token);
+        strcpy(read_sigla_disc, token);  */
+
+        // Leitura dos campos
+        char read_id_aluno[4];
+        char read_sigla_disciplina[4];
+        char read_nome_aluno[50];
+        char read_nome_disciplina[50];
+        float read_media;
+        float read_frequencia;
+
+        // Separar os campos
+        char *p = buffer;
+        strncpy(read_id_aluno, p, 4);
+        p += 5;
+        strncpy(read_sigla_disciplina, p, 4);
+        p += 5;
+        strncpy(read_nome_aluno, p, 50);
+        p += 51;
+        strncpy(read_nome_disciplina, p, 50);
+        p += 51;
+        memcpy(&read_media, p, sizeof(float));
+        p += sizeof(float);
+        memcpy(&read_frequencia, p, sizeof(float));
 
         // Verifica se o registro atual corresponde ao id e sigla fornecidos
-        if (strcmp(read_id_aluno, id_aluno) == 0 && strcmp(read_sigla_disc, sigla_disc) == 0)
+        if (strcmp(read_id_aluno, rem.id_aluno) == 0 && strcmp(read_sigla_disciplina, rem.sigla_disc) == 0)
         {
             struct espaco_livre el;
             el.size = reg_size;
             el.marcador = '*';
-            el.offset_prox = header->offset_disponivel;
+            el.offset_prox = header.offset_disponivel;
 
             // Volta ao início do registro para sobrescrevê-lo
             fseek(fd, reg_start_offset, SEEK_SET);
             fwrite(&el, sizeof(el), 1, fd);
 
             // Atualiza o cabeçalho com o novo primeiro espaço livre, e atualiza o ultimo arquivo removido do vetor
-            header->offset_disponivel = reg_start_offset;
-            header->remover++;
+            header.offset_disponivel = reg_start_offset;
+            header.remover++;
 
             // Atualiza o cabeçalho no arquivo
             fseek(fd, 0, SEEK_SET);
-            fwrite(header, sizeof(struct cabecalho), 1, fd);
+            fwrite(&header, sizeof(struct cabecalho), 1, fd);
 
-            printf("Registro removido: ID Aluno %s, Disciplina %s\n", id_aluno, sigla_disc);
+            printf("Registro removido: ID Aluno %s, Disciplina %s\n", rem.id_aluno, rem.sigla_disc);
             return;
         }
 
@@ -219,7 +270,7 @@ void removerRegistro(FILE *fd, struct cabecalho *header, char *id_aluno, char *s
         offset = ftell(fd);
     }
 
-    printf("Registro não encontrado: ID Aluno %s, Disciplina %s\n", id_aluno, sigla_disc);
+    printf("Registro nao encontrado: ID Aluno %s, Disciplina %s\n", rem.id_aluno, rem.sigla_disc);
 }
 
 int main()
@@ -293,10 +344,11 @@ int main()
 
     inserirRegistro(fd, insere[0]);
     inserirRegistro(fd, insere[1]);
+    inserirRegistro(fd, insere[2]);
+    removerRegistro(fd, elimina[0]);
 
     fclose(fd);
 
-    
     /*
     int choice;
     do{

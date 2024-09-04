@@ -2,6 +2,7 @@
 #include <conio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>
 
 #include <iostream>
 #include <fstream>
@@ -46,9 +47,10 @@ int calcularTamanhoRegistro(const Registro &reg)
     int tamanho_nome_aluno, tamanho_nome_disciplina;
     for (int i = 0; i < 50; i++)
     {
+
         if (reg.nome_aluno[i] == '\0')
-        {          // Verifica se encontrou o espaço vazio (0x00)
-            break; 
+        { // Verifica se encontrou o espaço vazio (0x00)
+            break;
         }
         tamanho_nome_aluno++;
     }
@@ -56,104 +58,112 @@ int calcularTamanhoRegistro(const Registro &reg)
     for (int i = 0; i < 50; i++)
     {
         if (reg.nome_disciplina[i] == '\0')
-        {          // Verifica se encontrou o espaço vazio (0x00)
-            break; 
+        { // Verifica se encontrou o espaço vazio (0x00)
+            break;
         }
         tamanho_nome_disciplina++;
     }
 
     int tamanho = sizeof(reg.id_aluno) + 1 +
                   sizeof(reg.sigla_disciplina) + 1 +
-                  tamanho_nome_aluno*sizeof(char) + 1 +              // +1 para o separador '#'
-                  tamanho_nome_disciplina*sizeof(char) + 1 +
+                  tamanho_nome_aluno * sizeof(char) + 1 + // +1 para o separador '#'
+                  tamanho_nome_disciplina * sizeof(char) + 1 +
                   sizeof(reg.media) + 1 +
                   sizeof(reg.frequencia);
     return tamanho;
 }
 
 // Função para escrever um registro no arquivo
-// Função para escrever um registro no arquivo
 void inserirRegistro(FILE *file, const Registro &reg)
 {
     int tamanho_registro = calcularTamanhoRegistro(reg);
     int tamanho_atual;
 
+    // bool espaco_encontrado = false;
+
+    struct cabecalho header;
+    fseek(file, 0, SEEK_SET);
+    fread(&header, sizeof(struct cabecalho), 1, file);
+    printf("%i", header.offset_disponivel);
+    int offset_anterior = -1;
+    int offset_atual = header.offset_disponivel;
+    printf("%i", offset_atual);
+    int offset_inserir = -1;
+
+    struct espaco_livre esp_livre;
+
     // Verifica se existe espaço disponível (first-fit)
-    bool espaco_encontrado = false;
-    while (fread(&tamanho_atual, sizeof(int), 1, file) == 1)
+    while (offset_atual != -1)
     {
-        if (tamanho_atual >= tamanho_registro)
+        fseek(file, offset_atual, SEEK_SET);
+        fread(&esp_livre, sizeof(esp_livre), 1, file);
+
+        if (esp_livre.size >= tamanho_registro)
         {
-            // Move de volta para a posição inicial do espaço encontrado
-            fseek(file, -sizeof(int), SEEK_CUR);
+            offset_inserir = offset_atual;
 
-            // Escreve o novo tamanho do registro
-            fwrite(&tamanho_registro, sizeof(int), 1, file);
-
-            // Escreve o conteúdo do registro
-            fwrite(reg.id_aluno, sizeof(reg.id_aluno), 1, file);
-            fputc('#', file);
-            fwrite(reg.sigla_disciplina, sizeof(reg.sigla_disciplina), 1, file);
-            fputc('#', file);
-
-            int count = 0;
-            // Inserir nome_aluno caracter por caracter até encontrar 0x00
-            for (int i = 0; i < 50; i++)
-            {
-                if (reg.nome_aluno[i] == '\0')
-                {          // Verifica se encontrou o espaço vazio (0x00)
-                    break; // Pula para o próximo campo
-                }
-                fputc(reg.nome_aluno[i], file); // Escreve o caractere no arquivo
+            // Atualiza o encadeamento dos espaços livres
+            if (offset_anterior == -1)
+            { // Atualiza o cabeçalho se for o primeiro espaço livre
+                header.offset_disponivel = esp_livre.offset_prox;
             }
-
-            // Inserir nome_disciplina caracter por caracter até encontrar 0x00
-            for (int i = 0; i < 50; i++)
+            else
             {
-                if (reg.nome_disciplina[i] == '\0')
-                {          // Verifica se encontrou o espaço vazio (0x00)
-                    break; // Pula para o próximo campo
-                }
-                fputc(reg.nome_disciplina[i], file); // Escreve o caractere no arquivo
+                // Atualiza o próximo offset do registro anterior
+                fseek(file, offset_anterior + offsetof(struct espaco_livre, offset_prox), SEEK_SET);
+                fwrite(&esp_livre.offset_prox, sizeof(int), 1, file);
             }
-            fputc('#', file);
-            fwrite(&reg.media, sizeof(float), 1, file);
-            fputc('#', file);
-            fwrite(&reg.frequencia, sizeof(float), 1, file);
-
-            espaco_encontrado = true;
             break;
         }
-        else
-        {
-            // Avança para o próximo registro
-            fseek(file, tamanho_atual, SEEK_CUR);
-        }
-    }
 
-    if (!espaco_encontrado)
+        // Atualiza os offsets para o próximo loop
+        offset_anterior = offset_atual;
+        offset_atual = esp_livre.offset_prox;
+    }
+    printf("opa");
+    if (offset_inserir == -1)
+    { // Se não encontrou um espaço adequado, insere no final do arquivo
+        fseek(file, 0, SEEK_END);
+        offset_inserir = ftell(file);
+    }
+    // Vai para o offset onde o registro será inserido e o escreve
+    fseek(file, offset_inserir, SEEK_SET);
+
+    // Escreve o novo tamanho do registro
+    fwrite(&tamanho_registro, sizeof(int), 1, file);
+
+    // Escreve o conteúdo do registro
+    fwrite(reg.id_aluno, sizeof(reg.id_aluno), 1, file);
+    fputc('#', file);
+    fwrite(reg.sigla_disciplina, sizeof(reg.sigla_disciplina), 1, file);
+    fputc('#', file);
+
+    // Inserir nome_aluno caracter por caracter até encontrar 0x00
+    for (int i = 0; i < 50; i++)
     {
-        // Adiciona o registro no final do arquivo
-        fseek(file, 0, SEEK_END); // Vai para o final do arquivo
-
-        // Escreve o tamanho do registro no início
-        fwrite(&tamanho_registro, sizeof(int), 1, file);
-
-        // Escreve o conteúdo do registro
-        fwrite(reg.id_aluno, sizeof(reg.id_aluno), 1, file);
-        fputc('#', file);
-        fwrite(reg.sigla_disciplina, sizeof(reg.sigla_disciplina), 1, file);
-        fputc('#', file);
-        fwrite(reg.nome_aluno, sizeof(char), sizeof(reg.nome_aluno), file);
-        fputc('#', file);
-        fwrite(reg.nome_disciplina, sizeof(char), sizeof(reg.nome_disciplina), file);
-        fputc('#', file);
-        fwrite(&reg.media, sizeof(float), 1, file);
-        fputc('#', file);
-        fwrite(&reg.frequencia, sizeof(float), 1, file);
+        if (reg.nome_aluno[i] == '\0')
+        {          // Verifica se encontrou o espaço vazio (0x00)
+            break; // Pula para o próximo campo
+        }
+        fputc(reg.nome_aluno[i], file); // Escreve o caractere no arquivo
     }
 
-    fclose(file);
+    // Inserir nome_disciplina caracter por caracter até encontrar 0x00
+    for (int i = 0; i < 50; i++)
+    {
+        if (reg.nome_disciplina[i] == '\0')
+        {          // Verifica se encontrou o espaço vazio (0x00)
+            break; // Pula para o próximo campo
+        }
+        fputc(reg.nome_disciplina[i], file); // Escreve o caractere no arquivo
+    }
+    fputc('#', file);
+    fwrite(&reg.media, sizeof(float), 1, file);
+    fputc('#', file);
+    fwrite(&reg.frequencia, sizeof(float), 1, file);
+    // Atualizar o cabeçalho no arquivo
+    fseek(file, 0, SEEK_SET);
+    fwrite(&header, sizeof(header), 1, file);
 }
 void removerRegistro(FILE *fd, struct cabecalho *header, char *id_aluno, char *sigla_disc)
 {
@@ -278,12 +288,16 @@ int main()
         return 1;
     }
 
-    inserirRegistro(fd, insere[0]);
-    //inserirRegistro(fd, insere[1]);
-    /*
     fseek(fd, 0, SEEK_SET);
     fwrite(&header, sizeof(struct cabecalho), 1, fd);
 
+    inserirRegistro(fd, insere[0]);
+    inserirRegistro(fd, insere[1]);
+
+    fclose(fd);
+
+    
+    /*
     int choice;
     do{
         printf("Selecione uma das seguintes opções:\n0-Sair;\n1-Inserir novo registro;\n2-Remover registro;\n3-Realizar a compactação do arquivo;\nOpção:");

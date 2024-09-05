@@ -180,100 +180,15 @@ void inserirRegistro(FILE *file, const Registro &reg)
     fputc('#', file);
     fwrite(&reg.frequencia, sizeof(float), 1, file);
     // Atualizar o cabeçalho no arquivo
-    printf("\nInserir:%d", header.ler);
     header.ler++;
-    printf("\nInserir:%d", header.ler);
     fseek(file, 0, SEEK_SET);
     fwrite(&header, sizeof(struct cabecalho), 1, file);
 
     fflush(file);
 }
 
-/*
+
 // Função para remover um registro
-void removerRegistro(FILE *fd, const removidos rem)
-{
-    int reg_size;
-    char buffer[1000];                      // Buffer para armazenar o registro completo
-    long offset = sizeof(struct cabecalho); // Começar após o cabeçalho
-    long reg_start_offset;                  // Guardará o inicio do registro que está sendo lido
-
-    struct cabecalho header;
-    fseek(fd, 0, SEEK_SET);
-    fread(&header, sizeof(struct cabecalho), 1, fd);
-
-    fseek(fd, offset, SEEK_SET); // Navega até o início do arquivo após o cabeçalho
-
-    // Percorre o arquivo em busca do registro correspondente ao id e sigla fornecidos
-    while (fread(&reg_size, sizeof(int), 1, fd))
-    {
-
-        reg_start_offset = ftell(fd) - sizeof(int); // Guarda o início do registro atual
-
-        // Lê o registro completo baseado no tamanho
-        fread(buffer, reg_size, 1, fd);
-        buffer[reg_size] = '\0';
-
-        // Leitura dos campos
-        char read_id_aluno[4];
-        char read_sigla_disciplina[4];
-        char read_nome_aluno[50];
-        char read_nome_disciplina[50];
-        float read_media;
-        float read_frequencia;
-
-        // Separar os campos
-        char *p = buffer;
-        strncpy(read_id_aluno, p, 4);
-        p += 5;
-        strncpy(read_sigla_disciplina, p, 4);
-        p += 5;
-        strncpy(read_nome_aluno, p, 50);
-        p += 51;
-        strncpy(read_nome_disciplina, p, 50);
-        p += 51;
-        memcpy(&read_media, p, sizeof(float));
-        p += sizeof(float);
-        memcpy(&read_frequencia, p, sizeof(float));
-
-        // Verifica se o registro atual corresponde ao id e sigla fornecidos
-        if (strcmp(read_id_aluno, rem.id_aluno) == 0 && strcmp(read_sigla_disciplina, rem.sigla_disc) == 0)
-        {
-            struct espaco_livre el;
-            el.size = reg_size;
-            el.marcador = '*';
-            el.offset_prox = header.offset_disponivel;
-
-            // Volta ao início do registro para sobrescrevê-lo
-            fseek(fd, reg_start_offset, SEEK_SET);
-            fwrite(&el, sizeof(struct espaco_livre), 1, fd);
-            fseek(fd, reg_start_offset + sizeof(struct espaco_livre), SEEK_SET);
-            for (int i = 0; i < el.size - sizeof(el); i++)
-            {
-                fputc('*', fd);
-            }
-
-            // Atualiza o cabeçalho com o novo primeiro espaço livre, e atualiza o ultimo arquivo removido do vetor
-            header.offset_disponivel = reg_start_offset;
-            header.remover+=1;
-            printf("Remover:%d", header.remover);
-
-            // Atualiza o cabeçalho no arquivo
-            fseek(fd, 0, SEEK_SET);
-            fwrite(&header, sizeof(struct cabecalho), 1, fd);
-
-            printf("Registro removido: ID Aluno %s, Disciplina %s\n", rem.id_aluno, rem.sigla_disc);
-            return;
-        }
-
-        // Atualiza o offset para o próximo registro
-        offset = ftell(fd);
-    }
-
-    printf("Registro nao encontrado: ID Aluno %s, Disciplina %s\n", rem.id_aluno, rem.sigla_disc);
-}
-
-*/
 void removerRegistro(FILE *fd, const removidos rem) {
     int reg_size;
     char buffer[1000];                      // Buffer para armazenar o registro completo
@@ -326,7 +241,6 @@ void removerRegistro(FILE *fd, const removidos rem) {
             // Atualiza o cabeçalho com o novo primeiro espaço livre
             header.offset_disponivel = reg_start_offset;
             header.remover++;
-            printf("Remover: %d\n", header.remover);
 
             // Atualiza o cabeçalho no arquivo
             fseek(fd, 0, SEEK_SET);
@@ -343,7 +257,6 @@ void removerRegistro(FILE *fd, const removidos rem) {
 
     printf("Registro não encontrado: ID Aluno %s, Disciplina %s\n", rem.id_aluno, rem.sigla_disc);
 }
-
 
 void compactar(FILE *fd) {
     int posicao_atual, fim_atual, inicio_proximo;
@@ -373,7 +286,7 @@ void compactar(FILE *fd) {
             // Verifica se chegou ao final do arquivo
             if (ftell(fd) >= tamanho_arquivo) {
                 // Se o espaço livre está no final do arquivo, truncar o arquivo
-                printf("Removendo espaço livre no final do arquivo.\n");
+                printf("Removendo espaco livre no final do arquivo.\n");
                 ftruncate(fileno(fd), posicao_atual);
                 break;
             }
@@ -396,6 +309,75 @@ void compactar(FILE *fd) {
         }
     }
 }
+/*
+#include <stdio.h>
+#include <unistd.h> // Para usar ftruncate
+
+void compactar(FILE *fd)
+{
+    int posicao_atual, reg_size_atual, reg_size_proximo;
+    char verificador;
+    long fim_arquivo;
+    char buffer[1000];  // Buffer temporário para mover registros
+
+    // Move o ponteiro para o final do arquivo para determinar seu tamanho
+    fseek(fd, 0, SEEK_END);
+    fim_arquivo = ftell(fd);
+
+    // Volta para o início dos registros (após o cabeçalho)
+    fseek(fd, sizeof(struct cabecalho), SEEK_SET);
+
+    while (ftell(fd) < fim_arquivo && fread(&reg_size_atual, sizeof(int), 1, fd)) {
+        posicao_atual = ftell(fd) - sizeof(int); // Guarda o início do registro atual
+
+        // Lê o primeiro byte do registro para verificar se é um espaço livre
+        fread(&verificador, sizeof(char), 1, fd);
+        if (verificador == '*') {
+            // Registro removido (espaço livre)
+
+            // Move o ponteiro para o próximo registro após o espaço livre
+            fseek(fd, posicao_atual + reg_size_atual, SEEK_SET);
+
+            // Verifica se já estamos no final do arquivo
+            long inicio_proximo = ftell(fd);
+            if (inicio_proximo >= fim_arquivo) {
+                // Não há mais registros após este espaço livre, truncar o arquivo
+                printf("Espaço livre encontrado no final do arquivo. Truncando...\n");
+                ftruncate(fileno(fd), posicao_atual); // Remove o espaço livre ao truncar o arquivo
+                break;
+            }
+
+            // Lê o próximo registro
+            fread(&reg_size_proximo, sizeof(int), 1, fd); // Tamanho do próximo registro
+
+            // Lê o conteúdo do próximo registro no buffer
+            fseek(fd, inicio_proximo + sizeof(int), SEEK_SET);
+            fread(buffer, reg_size_proximo, 1, fd);
+
+            // Volta ao início do espaço livre para sobrescrevê-lo com o próximo registro
+            fseek(fd, posicao_atual, SEEK_SET);
+            fwrite(&reg_size_proximo, sizeof(int), 1, fd);  // Escreve o tamanho do registro
+            fwrite(buffer, reg_size_proximo, 1, fd);        // Escreve o conteúdo do registro
+
+            // Move os registros subsequentes
+            long prox_inicio = inicio_proximo + sizeof(int) + reg_size_proximo;
+            fseek(fd, prox_inicio, SEEK_SET);
+
+            // Atualiza fim_arquivo para refletir que o arquivo pode ter sido reduzido
+            fim_arquivo -= (inicio_proximo - posicao_atual); // Atualiza o tamanho do arquivo após a compactação
+
+        } else {
+            // Registro válido, apenas mova o ponteiro para o próximo registro
+            fseek(fd, posicao_atual + reg_size_atual, SEEK_SET);
+        }
+    }*/
+
+    // Truncar o arquivo caso o último espaço livre não tenha registros subsequentes
+    fseek(fd, 0, SEEK_END);
+    fim_arquivo = ftell(fd);
+    ftruncate(fileno(fd), fim_arquivo);
+}
+
 
 
 int main()
@@ -455,7 +437,7 @@ int main()
 
     if (arquivo_existe("listaRegistros.bin"))//se o arquivo já existe, abbre o arquivo
     {
-        fd = fopen("listaRegistros.bin", "wb+");
+        fd = fopen("listaRegistros.bin", "rb+");
         if (fd == NULL)
         {
             printf("Nao foi possivel abrir o arquivo.\n");
@@ -478,17 +460,6 @@ int main()
         fwrite(&header, sizeof(struct cabecalho), 1, fd);
     }
 
-/*
-    inserirRegistro(fd, insere[0]);
-    inserirRegistro(fd, insere[1]);
-    inserirRegistro(fd, insere[2]);
-    inserirRegistro(fd, insere[3]);
-    removerRegistro(fd, elimina[0]);
-    inserirRegistro(fd, insere[4]);
-    inserirRegistro(fd, insere[2]);
-    // compactar(fd);
-    fclose(fd);
-*/
     int choice;
     struct cabecalho hdr;
     do
@@ -499,14 +470,15 @@ int main()
         {
 
         case 0:
+            fseek(fd, 0, SEEK_SET);
+            fflush(fd);
             fclose(fd);
-            return 0;
+            break;
 
         case 1:
 
             fseek(fd, 0, SEEK_SET);
             fread(&hdr, sizeof(struct cabecalho), 1, fd);
-            printf("\n%d\n", hdr.ler);
             if (hdr.ler < MAX_INSERE)
             {
                 inserirRegistro(fd, insere[hdr.ler]);
@@ -518,7 +490,6 @@ int main()
         case 2:
             fseek(fd, 0, SEEK_SET);
             fread(&hdr, sizeof(struct cabecalho), 1, fd);
-            printf("\n%d\n", hdr.remover);
             if (hdr.remover < MAX_REMOVE)
             {
                 removerRegistro(fd, elimina[hdr.remover]);
@@ -537,4 +508,5 @@ int main()
         }
 
     } while (choice != 0);
+    return 0;
 }

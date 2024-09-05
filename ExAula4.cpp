@@ -41,6 +41,16 @@ struct removidos
     char sigla_disc[4];
 } elimina[4];
 
+//Função para verificar se um arquivo já existe
+int arquivo_existe(const char *nome_arquivo) {
+    FILE *arquivo = fopen(nome_arquivo, "rb");
+    if (arquivo) {
+        fclose(arquivo);
+        return 1; // Arquivo existe
+    }
+    return 0; // Arquivo não existe
+}
+
 // Função para calcular o tamanho do registro
 int calcularTamanhoRegistro(const Registro &reg)
 {
@@ -123,6 +133,7 @@ void inserirRegistro(FILE *file, const Registro &reg)
         fseek(file, 0, SEEK_END);
         offset_inserir = ftell(file);
     }
+
     // Vai para o offset onde o registro será inserido e o escreve
     fseek(file, offset_inserir, SEEK_SET);
 
@@ -163,6 +174,8 @@ void inserirRegistro(FILE *file, const Registro &reg)
     fseek(file, 0, SEEK_SET);
     fwrite(&header, sizeof(header), 1, file);
 }
+
+//Função para remover um registro
 void removerRegistro(FILE *fd, const removidos rem)
 {
     int reg_size;
@@ -185,40 +198,6 @@ void removerRegistro(FILE *fd, const removidos rem)
         // Lê o registro completo baseado no tamanho
         fread(buffer, reg_size, 1, fd);
         buffer[reg_size] = '\0';
-/*
-        printf("Conteúdo do buffer: '%s'\n", buffer);
-
-        // Verifica o conteúdo do buffer
-        for (int i = 0; i < reg_size; i++) {
-            printf("buffer[%d]: %02x '%c'\n", i, (unsigned char)buffer[i], buffer[i]);
-        }
-
-        // Separa os campos do registro
-        char *token1 = strtok(buffer, "#");
-        char *token2 = strtok(NULL, "#");
-        if (token1 == NULL)
-        {
-            printf("Erro ao separar o ID do aluno.\n");
-            return;
-        }
-        char read_id_aluno[4];
-        strncpy(read_id_aluno, token1, sizeof(read_id_aluno) - 1);
-        read_id_aluno[sizeof(read_id_aluno) - 1] = '\0'; // Assegura o terminador nulo
-        printf("ID do aluno lido: '%s'\n", read_id_aluno);
-
-        if (token2 == NULL)
-        {
-            printf("Erro ao separar a sigla da disciplina.\n");
-            return;
-        }
-        char read_sigla_disc[4];
-
-        strncpy(read_sigla_disc, token2, sizeof(read_sigla_disc) - 1);
-        read_sigla_disc[sizeof(read_sigla_disc) - 1] = '\0'; // Assegura o terminador nulo
-        printf("Sigla da disciplina lida: '%s'\n", read_sigla_disc);
-
-        /*printf("Sigla da disciplina lida: %s\n", token);
-        strcpy(read_sigla_disc, token);  */
 
         // Leitura dos campos
         char read_id_aluno[4];
@@ -253,6 +232,9 @@ void removerRegistro(FILE *fd, const removidos rem)
             // Volta ao início do registro para sobrescrevê-lo
             fseek(fd, reg_start_offset, SEEK_SET);
             fwrite(&el, sizeof(el), 1, fd);
+            for(int i = 0; i < el.size-sizeof(el); i++){
+                fputc('*', fd);
+            }
 
             // Atualiza o cabeçalho com o novo primeiro espaço livre, e atualiza o ultimo arquivo removido do vetor
             header.offset_disponivel = reg_start_offset;
@@ -271,6 +253,42 @@ void removerRegistro(FILE *fd, const removidos rem)
     }
 
     printf("Registro nao encontrado: ID Aluno %s, Disciplina %s\n", rem.id_aluno, rem.sigla_disc);
+}
+
+void compactar (FILE *fd){
+    int posicao_atual, fim_atual, inicio_proximo;
+    int reg_size_atual, reg_size_proximo;
+    char verificador, buffer;
+
+    fseek(fd, sizeof(struct cabecalho), SEEK_SET);
+
+    while (fread(&reg_size_atual, sizeof(int), 1, fd)){
+        posicao_atual = ftell(fd) - sizeof(int); //grava o inicio do registro atual
+
+        fread(&verificador, sizeof(char), 1, fd);
+        if(verificador == '*'){ //verifica se o espaço está livre 
+            fseek(fd, posicao_atual + reg_size_atual, SEEK_SET);//busca pelo primeiro registro depois do espaco livre
+            inicio_proximo = ftell(fd);//grava o inicio do proximo registro
+            fread(&reg_size_proximo, sizeof(int), 1, fd);//grava o tamanho do proximo registro
+
+
+            for (int i = 0; i < reg_size_proximo + sizeof(int); i++){
+                fseek(fd, inicio_proximo + i, SEEK_SET);
+                fread(&buffer, sizeof(char), 1, fd);
+                fseek(fd, posicao_atual, SEEK_SET);
+                fwrite(&buffer, sizeof(char), 1, fd);
+                posicao_atual++;
+            }
+
+            fim_atual = posicao_atual;
+            fseek(fd, inicio_proximo + reg_size_proximo, SEEK_SET);
+
+
+        }
+
+    }
+
+
 }
 
 int main()
@@ -345,8 +363,10 @@ int main()
     inserirRegistro(fd, insere[0]);
     inserirRegistro(fd, insere[1]);
     inserirRegistro(fd, insere[2]);
+    inserirRegistro(fd, insere[3]);
     removerRegistro(fd, elimina[0]);
-
+    inserirRegistro(fd, insere[4]);
+    inserirRegistro(fd, insere[2]);
     fclose(fd);
 
     /*
